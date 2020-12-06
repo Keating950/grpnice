@@ -5,6 +5,7 @@ name = "grpnice"
 version = "1.0.0"
 authors = ["Keating Reid <keating.reid@protonmail.com>"]
 edition = "2018"
+license = "MIT"
 
 [profile.release]
 strip = "symbols"
