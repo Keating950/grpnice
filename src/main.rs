@@ -10,8 +10,10 @@ const HELP: &'static str = "
 grpnice: Adjusts niceness for the given PID's process group.
 
 USAGE:\tgrpnice [-n (adjustment)] (PID)
-n:\tThis number is added to the process group's niceness. Must be an integer. Defaults to 10.
+n:\tAdded to the process group's niceness. Must be an integer. Defaults to 10.
 PID:\tPID to adjust.
+-h:\tPrint this help message.
+-v:\tPrint version info.
 ";
 
 macro_rules! help_exit {
@@ -43,6 +45,10 @@ fn parse_args(args: &mut VecDeque<String>) -> BoxResult<(usize, i32)> {
         match args.pop_front().as_deref() {
             None => help_exit!(1),
             Some("-h") => help_exit!(0),
+            Some("-v") => {
+                print_version_info();
+                exit(0)
+            }
             Some("-n") =>
                 adjustment = Some(args.pop_front().unwrap_or_else(|| help_exit!(1)).parse()?),
             Some(p) => {
@@ -65,4 +71,13 @@ fn renice(pid: usize, adjustment: i32) -> BoxResult<(String, i32, i32)> {
     let new_contents = format!("{} {}\n", fields.join(" "), &new_niceness.to_string());
     fs::write(&path, new_contents)?;
     Ok((fields[0].to_string(), niceness, new_niceness))
+}
+
+fn print_version_info() {
+    println!(
+        "{} {}\nCopyright (C) {}\nReleased and distributed under the terms of the MIT licence.",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_AUTHORS")
+    )
 }
