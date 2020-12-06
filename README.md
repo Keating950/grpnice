@@ -4,10 +4,10 @@
 grpnice: Adjusts niceness for the given PID's autogroup.
 
 USAGE:	grpnice [-n (adjustment)] (PID)
-n:		Added to the process group's niceness. Must be an integer. Defaults to 10.
+n:	Added to the process group's niceness. Must be an integer. Defaults to 10.
 PID:	PID to adjust.
--h:		Print this help message.
--v:		Print version info.
+-h:	Print this help message.
+-v:	Print version info.
 ```
 
 ## Rationale
