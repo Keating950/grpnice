@@ -49,11 +49,8 @@ fn parse_args(args: &mut VecDeque<String>) -> BoxResult<(usize, i32)> {
                 print_version_info();
                 exit(0)
             }
-            Some("-n") =>
-                adjustment = Some(args.pop_front().unwrap_or_else(|| help_exit!(1)).parse()?),
-            Some(p) => {
-                pid = Some(p.parse::<usize>()?);
-            }
+            Some("-n") => adjustment = Some(args.pop_front().expect(HELP).parse()?),
+            Some(p) => pid = Some(p.parse::<usize>()?),
         }
     }
     Ok((pid.unwrap(), adjustment.unwrap_or(10)))
