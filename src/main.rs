@@ -1,54 +1,86 @@
 use std::{
     cmp::{max, min},
     collections::VecDeque,
-    env, error, fs,
+    env,
+    fs,
+    io,
+    num::ParseIntError,
     process::exit,
 };
 
-type BoxResult<T> = Result<T, Box<dyn error::Error>>;
-const HELP: &'static str = "
-grpnice: Adjusts niceness for the given PID's process group.
+const HELP: &'static str = concat!(
+    env!("CARGO_PKG_NAME"),
+    ": Adjusts niceness for the given PID's process group.\n\n",
+    "USAGE:\tgrpnice [-n (adj)] (PID)\n",
+    "(adj):\tAdded to the process group's niceness. Must be an integer. Defaults to 10.\n",
+    "(PID):\tPID to adjust.\n",
+    "-h:\tPrint this help message.\n",
+    "-v:\tPrint version info.",
+);
+const VERSION: &'static str = concat!(
+    env!("CARGO_PKG_NAME"),
+    " ",
+    env!("CARGO_PKG_VERSION"),
+    "\nCopyright (C) ",
+    env!("CARGO_PKG_AUTHORS"),
+    "\nReleased and distributed under the terms of the MIT licence.",
+);
 
-USAGE:\tgrpnice [-n (adjustment)] (PID)
-n:\tAdded to the process group's niceness. Must be an integer. Defaults to 10.
-PID:\tPID to adjust.
--h:\tPrint this help message.
--v:\tPrint version info.
-";
+enum ArgError {
+    PrintHelp,
+    PrintVersion,
+    InsufficientArgs,
+    ParseError(ParseIntError),
+    FileNotFound(io::Error),
+}
 
-macro_rules! help_exit {
-    ($n:literal) => { {eprintln!("{}", HELP); exit($n);} };
+impl From<ParseIntError> for ArgError {
+    fn from(e: ParseIntError) -> Self {
+        ArgError::ParseError(e)
+    }
+}
+impl From<io::Error> for ArgError {
+    fn from(e: io::Error) -> Self {
+        ArgError::FileNotFound(e)
+    }
+}
+
+macro_rules! die {
+    ($s:expr) => { {eprintln!("{}", $s); exit(1);} };
+    ($s:expr, $n:literal) => { {eprintln!("{}", $s); exit($n);} };
 }
 
 fn main() {
     let mut args: VecDeque<String> = env::args().skip(1).collect();
-    let (pid, adjustment) = parse_args(&mut args).unwrap_or_else(|_| help_exit!(1));
-    let (grp, old, new) = match renice(pid, adjustment) {
-        Ok((grp, old, new)) => (grp, old, new),
-        Err(msg) => {
-            //  trait object erases error info, so string matching is necessary
-            match msg.to_string() {
-                s if s.starts_with("No such file") =>
-                    eprintln!("No autogroup found for PID {}", pid),
-                s => eprintln!("{}", s),
-            }
-            exit(1);
+    let (pid, adjustment) = match parse_args(&mut args) {
+        Err(ArgError::PrintHelp) => die!(HELP),
+        Err(ArgError::PrintVersion) => die!(VERSION, 0),
+        Err(ArgError::InsufficientArgs) => die!(HELP),
+        Err(ArgError::ParseError(e)) => {
+            eprintln!("Failed to parse argument {}", e);
+            die!(HELP)
         }
+        Ok((p, a)) => (p, a),
+        _ => unreachable!(),
     };
-    println!("{} ({}): old priority {}, new priority {}", pid, grp, old, new);
+    match renice(pid, adjustment) {
+        Ok((grp, old, new)) =>
+            println!("{} ({}): old priority {}, new priority {}", pid, grp, old, new),
+        Err(ArgError::ParseError(e)) =>
+            die!(format!("Invalid value in /proc/{}/autogroup: {}", pid, e)),
+        Err(ArgError::FileNotFound(e)) => die!(e),
+        _ => unreachable!(),
+    };
 }
 
-fn parse_args(args: &mut VecDeque<String>) -> BoxResult<(usize, i32)> {
+fn parse_args(args: &mut VecDeque<String>) -> Result<(usize, i32), ArgError> {
     let mut adjustment: Option<i32> = None;
     let mut pid: Option<usize> = None;
     while pid.is_none() {
         match args.pop_front().as_deref() {
-            None => help_exit!(1),
-            Some("-h") => help_exit!(0),
-            Some("-v") => {
-                print_version_info();
-                exit(0)
-            }
+            None => return Err(ArgError::InsufficientArgs),
+            Some("-h") => return Err(ArgError::PrintHelp),
+            Some("-v") => return Err(ArgError::PrintVersion),
             Some("-n") => adjustment = Some(args.pop_front().expect(HELP).parse()?),
             Some(p) => pid = Some(p.parse::<usize>()?),
         }
@@ -56,25 +88,15 @@ fn parse_args(args: &mut VecDeque<String>) -> BoxResult<(usize, i32)> {
     Ok((pid.unwrap(), adjustment.unwrap_or(10)))
 }
 
-fn renice(pid: usize, adjustment: i32) -> BoxResult<(String, i32, i32)> {
+fn renice(pid: usize, adjustment: i32) -> Result<(String, i32, i32), ArgError> {
     let path = format!("/proc/{}/autogroup", pid);
     let contents = fs::read_to_string(&path)?;
     let mut fields: Vec<&str> = contents.split(" ").map(str::trim).collect();
     let niceness: i32 = fields.pop().unwrap().parse()?;
     let new_niceness = match niceness {
         n if adjustment >= 0 => min(n + adjustment, 19),
-        n => max(n - adjustment, -20),
+        n => max(n + adjustment, -20),
     };
-    let new_contents = format!("{} {}\n", fields.join(" "), &new_niceness.to_string());
-    fs::write(&path, new_contents)?;
+    fs::write(path, new_niceness.to_string())?;
     Ok((fields[0].to_string(), niceness, new_niceness))
-}
-
-fn print_version_info() {
-    println!(
-        "{} {}\nCopyright (C) {}\nReleased and distributed under the terms of the MIT licence.",
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION"),
-        env!("CARGO_PKG_AUTHORS")
-    )
 }
